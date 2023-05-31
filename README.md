@@ -21,6 +21,9 @@ int main()
 
 コンソールへの出力は3〜5倍速くなるが、リダイレクトすると2倍くらい遅くなる。なぜ
 
+
+ptimer → https://github.com/na-trium-144/processing-timer
+
 ```c++
 #include "tbuf.hpp"
 #include <iostream>
