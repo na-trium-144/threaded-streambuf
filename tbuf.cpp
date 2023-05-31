@@ -1,7 +1,7 @@
 #include "tbuf.hpp"
 #include <cstddef>
 #include <cstring>
-#include <iostream>
+
 ThreadedBuf::ThreadedBuf(std::streambuf* sb) : org_buf(sb), t([this] { main_thread(); })
 {
     setp(buf, buf + sizeof(buf));
@@ -27,7 +27,7 @@ void ThreadedBuf::main_thread()
                 line = sync_data[0];
                 sync_data.pop_front();
             }
-            for (int i = 0; i < line.size(); i++) {
+            for (std::size_t i = 0; i < line.size(); i++) {
                 org_buf->sputc(line[i]);
             }
             out = true;

@@ -4,6 +4,7 @@
 #include <mutex>
 // #include <condition_variable>
 #include <thread>
+#include <string>
 
 class ThreadedBuf : public std::streambuf
 {
