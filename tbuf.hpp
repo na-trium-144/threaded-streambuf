@@ -22,14 +22,14 @@ public:
     struct Writer {
         Writer(std::streambuf* sb);
         ~Writer();
-        void main_thread();
+        void main_thread();  // sync_dataを読んでorg_bufに流すスレッド
         std::streambuf* org_buf;
         std::mutex m;
         std::thread t;
         std::deque<std::string> sync_data;
         int sync(char* buf);  // sync_dataに追加する
-        bool deinit = false;
-        int ref;
+        bool deinit = false;  // デストラクタのフラグ
+        int ref;              // このwriterに書き込んでいるThreadedBufの数
     };
 
 private:
