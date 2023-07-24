@@ -2,17 +2,36 @@
 #include <cstddef>
 #include <cstring>
 
-ThreadedBuf::ThreadedBuf(std::streambuf* sb) : org_buf(sb), t([this] { main_thread(); })
+ThreadedBuf::ThreadedBuf(std::streambuf* sb) : org_buf(sb)
 {
     setp(buf, buf + sizeof(buf));
+    if (!writer.count(org_buf)) {
+        writer.emplace(org_buf, std::make_shared<Writer>(org_buf));
+    } else {
+        std::lock_guard lock(writer[org_buf]->m);
+        writer[org_buf]->ref++;
+    }
 }
-
 ThreadedBuf::~ThreadedBuf()
+{
+    int ref;
+    {
+        std::lock_guard lock(writer[org_buf]->m);
+        ref = --writer[org_buf]->ref;
+    }
+    if (ref <= 0) {
+        writer.erase(org_buf);
+    }
+}
+ThreadedBuf::Writer::Writer(std::streambuf* sb) : org_buf(sb), t([this] { main_thread(); }), ref(1)
+{
+}
+ThreadedBuf::Writer::~Writer()
 {
     deinit = true;
     t.join();
 }
-void ThreadedBuf::main_thread()
+void ThreadedBuf::Writer::main_thread()
 {
     while (true) {
         std::this_thread::yield();
@@ -43,11 +62,14 @@ void ThreadedBuf::main_thread()
 
 int ThreadedBuf::sync()
 {
-    {
-        std::lock_guard lock(m);
-        sync_data.push_back(std::string(buf));
-    }
+    int s = writer[org_buf]->sync(buf);
     std::memset(buf, 0, sizeof(buf));
     setp(buf, buf + sizeof(buf));
+    return s;
+}
+int ThreadedBuf::Writer::sync(char* buf)
+{
+    std::lock_guard lock(m);
+    sync_data.push_back(std::string(buf));
     return 0;
 }
