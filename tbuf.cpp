@@ -2,13 +2,15 @@
 #include <cstddef>
 #include <cstring>
 
+std::unordered_map<std::streambuf*, std::shared_ptr<ThreadedBuf::Writer>> ThreadedBuf::writer;
+
 ThreadedBuf::ThreadedBuf(std::streambuf* sb) : org_buf(sb)
 {
     setp(buf, buf + sizeof(buf));
     if (!writer.count(org_buf)) {
         writer.emplace(org_buf, std::make_shared<Writer>(org_buf));
     } else {
-        std::lock_guard lock(writer[org_buf]->m);
+        std::lock_guard<std::mutex> lock(writer[org_buf]->m);
         writer[org_buf]->ref++;
     }
 }
@@ -16,7 +18,7 @@ ThreadedBuf::~ThreadedBuf()
 {
     int ref;
     {
-        std::lock_guard lock(writer[org_buf]->m);
+        std::lock_guard<std::mutex> lock(writer[org_buf]->m);
         ref = --writer[org_buf]->ref;
     }
     if (ref <= 0) {
@@ -39,7 +41,7 @@ void ThreadedBuf::Writer::main_thread()
         while (true) {
             std::string line;
             {
-                std::lock_guard lock(m);
+                std::lock_guard<std::mutex> lock(m);
                 if (sync_data.size() == 0) {
                     break;
                 }
@@ -69,7 +71,7 @@ int ThreadedBuf::sync()
 }
 int ThreadedBuf::Writer::sync(char* buf)
 {
-    std::lock_guard lock(m);
+    std::lock_guard<std::mutex> lock(m);
     sync_data.push_back(std::string(buf));
     return 0;
 }

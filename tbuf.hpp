@@ -33,7 +33,7 @@ public:
     };
 
 private:
-    inline static std::unordered_map<std::streambuf*, std::shared_ptr<Writer>> writer;
+    static std::unordered_map<std::streambuf*, std::shared_ptr<Writer>> writer;
 
     // virtual int overflow(int c);
     virtual int sync();
