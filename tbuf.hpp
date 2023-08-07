@@ -1,41 +1,121 @@
 #pragma once
 #include <streambuf>
-#include <deque>
+#include <ostream>
+#include <queue>
 #include <mutex>
-// #include <condition_variable>
+#include <condition_variable>
 #include <thread>
 #include <string>
 #include <memory>
 #include <unordered_map>
 
-class ThreadedBuf : public std::streambuf
-{
-public:
+class ThreadedBuf : public std::streambuf {
     static constexpr int buf_size = 1024;
+    std::ostream *target;
 
-    ThreadedBuf(std::streambuf* sb);
-    ~ThreadedBuf();
-
-    std::streambuf* org_buf;
-
-    // 書き込み先のsbごとに1つスレッドを立て、管理する
+    // 書き込み先のostreamごとに1つスレッドを立て、管理する
     struct Writer {
-        Writer(std::streambuf* sb);
-        ~Writer();
-        void main_thread();  // sync_dataを読んでorg_bufに流すスレッド
-        std::streambuf* org_buf;
-        std::mutex m;
+        Writer(std::ostream *target)
+            : target(target), t([this] { main_thread(); }) {}
+        ~Writer() {
+            deinit.store(true);
+            cond_push.notify_all();
+            t.join();
+        }
+        // sync_dataを読んでorg_bufに流すスレッド
+        void main_thread() {
+            while (!deinit.load()) {
+                std::unique_lock lock(m_push);
+                cond_push.wait(lock, [this] {
+                    return !sync_data.empty() || deinit.load();
+                });
+                {
+                    std::lock_guard lock(m_flush);
+                    while (!sync_data.empty()) {
+                        *target << sync_data.front() << std::flush;
+                        sync_data.pop();
+                    }
+                }
+                cond_flush.notify_all();
+            }
+        };
+        std::ostream *target;
+        std::atomic<bool> deinit = false; // デストラクタのフラグ
+        std::mutex m_push, m_flush;
+        std::condition_variable cond_push, cond_flush;
         std::thread t;
-        std::deque<std::string> sync_data;
-        int sync(char* buf);  // sync_dataに追加する
-        bool deinit = false;  // デストラクタのフラグ
-        int ref;              // このwriterに書き込んでいるThreadedBufの数
+        std::queue<std::string> sync_data;
+        // sync_dataに追加する
+        void push(char *buf) {
+            {
+                std::lock_guard<std::mutex> lock(m_push);
+                sync_data.push(std::string(buf));
+            }
+            cond_push.notify_all();
+        }
+        // flushが完了するまで待つ
+        void wait() {
+            std::unique_lock lock(m_flush);
+            cond_flush.wait(lock, [this] { return sync_data.empty(); });
+        }
     };
+    // ostreamとそれに書き込むwriterの対応を管理する
+    inline static std::unordered_map<std::ostream *, std::shared_ptr<Writer>>
+        writer;
 
-private:
-    static std::unordered_map<std::streambuf*, std::shared_ptr<Writer>> writer;
+    // streambufとそれに書き込むostreamの対応を管理する
+    inline static std::unordered_map<std::streambuf *,
+                                     std::shared_ptr<std::ostream>>
+        str;
 
-    // virtual int overflow(int c);
-    virtual int sync();
+    // int overflow(int c) override;
+    int sync() override {
+        writer[target]->push(buf);
+        std::memset(buf, 0, sizeof(buf));
+        setp(buf, buf + sizeof(buf));
+        return 0;
+    }
     char buf[buf_size];
+
+    // streambufの初期化とwriterの初期化
+    // 同じostreamに書き込むwriterがすでにあればそれを使う
+    void init() {
+        setp(buf, buf + sizeof(buf));
+        if (!writer.count(target)) {
+            writer.emplace(target, std::make_shared<Writer>(target));
+        }
+    }
+
+  public:
+    // 書き込み先のostreamを指定
+    explicit ThreadedBuf(std::ostream *target) : target(target) { init(); }
+    // 書き込み先のostreamを指定
+    explicit ThreadedBuf(std::ostream &target) : target(&target) { init(); }
+    // 書き込み先のstreambufを指定
+    // そのために、sbに書き込むostreamを作成
+    // 同じsbに書き込むostreamがすでに作成されていたらそれを使用
+    explicit ThreadedBuf(std::streambuf *sb) {
+        if (!str.count(sb)) {
+            str.emplace(sb, std::make_shared<std::ostream>(sb));
+        }
+        target = str[sb].get();
+        init();
+    }
+
+    ~ThreadedBuf() {
+        // すべて出力されるまでwriterを待機
+        writer[target]->wait();
+    }
+};
+
+class ThreadedStream : public std::ostream {
+    ThreadedBuf tbuf;
+
+  public:
+    explicit ThreadedStream(std::ostream *target)
+        : tbuf(target), std::ostream(&tbuf) {}
+    explicit ThreadedStream(std::ostream &target)
+        : tbuf(target), std::ostream(&tbuf) {}
+    explicit ThreadedStream(std::streambuf *sb)
+        : tbuf(sb), std::ostream(&tbuf) {}
 };
