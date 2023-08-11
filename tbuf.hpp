@@ -11,6 +11,10 @@
 
 class ThreadedBuf : public std::streambuf {
     static constexpr int buf_size = 1024;
+    char buf[buf_size];
+    // bufからあふれた分を入れる
+    std::string overflow_buf;
+
     std::ostream *target;
 
     // 書き込み先のostreamごとに1つスレッドを立て、管理する
@@ -46,10 +50,10 @@ class ThreadedBuf : public std::streambuf {
         std::thread t;
         std::queue<std::string> sync_data;
         // sync_dataに追加する
-        void push(char *buf) {
+        void push(const std::string &buf) {
             {
                 std::lock_guard<std::mutex> lock(m_push);
-                sync_data.push(std::string(buf));
+                sync_data.push(buf);
             }
             cond_push.notify_all();
         }
@@ -68,19 +72,31 @@ class ThreadedBuf : public std::streambuf {
                                      std::shared_ptr<std::ostream>>
         str;
 
-    // int overflow(int c) override;
-    int sync() override {
-        writer[target]->push(buf);
-        std::memset(buf, 0, sizeof(buf));
-        setp(buf, buf + sizeof(buf));
+    std::string get_str() {
+        return std::string(buf, this->pptr() - this->pbase());
+    }
+    int overflow(int c) override {
+        overflow_buf += get_str();
+        this->setp(buf, buf + sizeof(buf));
+        this->sputc(c);
         return 0;
     }
-    char buf[buf_size];
+    int sync() override {
+        if (!overflow_buf.empty()) {
+            writer[target]->push(overflow_buf + get_str());
+            overflow_buf = "";
+        } else {
+            writer[target]->push(get_str());
+        }
+        this->setp(buf, buf + sizeof(buf));
+        return 0;
+    }
 
     // streambufの初期化とwriterの初期化
     // 同じostreamに書き込むwriterがすでにあればそれを使う
     void init() {
-        setp(buf, buf + sizeof(buf));
+        this->setp(buf, buf + sizeof(buf));
+        overflow_buf = "";
         if (!writer.count(target)) {
             writer.emplace(target, std::make_shared<Writer>(target));
         }
