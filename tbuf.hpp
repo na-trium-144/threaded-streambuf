@@ -28,27 +28,33 @@ class ThreadedBuf : public std::streambuf {
         }
         // sync_dataを読んでorg_bufに流すスレッド
         void main_thread() {
-            while (!deinit.load()) {
-                std::unique_lock lock(m_push);
-                cond_push.wait(lock, [this] {
-                    return !sync_data.empty() || deinit.load();
-                });
+            while (true) {
+                std::string data;
+                {
+                    std::unique_lock lock(m_push);
+                    cond_push.wait(lock, [this] {
+                        return !sync_data.empty() || deinit.load();
+                    });
+                    if (sync_data.empty()) {
+                        break;
+                    }
+                    data = sync_data.front();
+                    sync_data.pop();
+                }
                 {
                     std::lock_guard lock(m_flush);
-                    while (!sync_data.empty()) {
-                        *target << sync_data.front() << std::flush;
-                        sync_data.pop();
-                    }
+                    *target << data << std::flush;
                 }
                 cond_flush.notify_all();
             }
+            cond_flush.notify_all();
         };
         std::ostream *target;
         std::atomic<bool> deinit = false; // デストラクタのフラグ
+        std::queue<std::string> sync_data;
         std::mutex m_push, m_flush;
         std::condition_variable cond_push, cond_flush;
         std::thread t;
-        std::queue<std::string> sync_data;
         // sync_dataに追加する
         void push(const std::string &buf) {
             {
@@ -60,7 +66,10 @@ class ThreadedBuf : public std::streambuf {
         // flushが完了するまで待つ
         void wait() {
             std::unique_lock lock(m_flush);
-            cond_flush.wait(lock, [this] { return sync_data.empty(); });
+            cond_flush.wait(lock, [this] {
+                std::lock_guard<std::mutex> lock(m_push);
+                return sync_data.empty();
+            });
         }
     };
     // ostreamとそれに書き込むwriterの対応を管理する
