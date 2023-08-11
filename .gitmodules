@@ -1,0 +1,3 @@
+[submodule "example/ptimer"]
+	path = example/ptimer
+	url = https://github.com/na-trium-144/processing-timer.git

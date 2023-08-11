@@ -1,0 +1,16 @@
+cmake_minimum_required(VERSION 3.8)
+project(threaded-streambuf LANGUAGES CXX)
+
+add_library(${PROJECT_NAME} INTERFACE)
+target_include_directories(${PROJECT_NAME} INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_17)
+
+if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
+    add_subdirectory(example/ptimer)
+    aux_source_directory(example SOURCES)
+    foreach(SRC ${SOURCES})
+        get_filename_component(TARGET ${SRC} NAME_WE)
+        add_executable(${TARGET} ${SRC})
+        target_link_libraries(${TARGET} PRIVATE ${PROJECT_NAME} ptimer)
+    endforeach()
+endif()

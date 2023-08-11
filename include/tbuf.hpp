@@ -31,7 +31,7 @@ class ThreadedBuf : public std::streambuf {
             while (true) {
                 std::string data;
                 {
-                    std::unique_lock lock(m_push);
+                    std::unique_lock<std::mutex> lock(m_push);
                     cond_push.wait(lock, [this] {
                         return !sync_data.empty() || deinit.load();
                     });
@@ -42,7 +42,7 @@ class ThreadedBuf : public std::streambuf {
                     sync_data.pop();
                 }
                 {
-                    std::lock_guard lock(m_flush);
+                    std::lock_guard<std::mutex> lock(m_flush);
                     *target << data << std::flush;
                 }
                 cond_flush.notify_all();
@@ -65,7 +65,7 @@ class ThreadedBuf : public std::streambuf {
         }
         // flushが完了するまで待つ
         void wait() {
-            std::unique_lock lock(m_flush);
+            std::unique_lock<std::mutex> lock(m_flush);
             cond_flush.wait(lock, [this] {
                 std::lock_guard<std::mutex> lock(m_push);
                 return sync_data.empty();

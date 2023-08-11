@@ -4,7 +4,16 @@
     * stream自体はスレッドセーフではないですが別スレッドで出力先に書き込む処理がスレッドセーフ
 
 ## usage
+
+このプロジェクトをsubmoduleとして追加し
+```cmake
+add_subdirectory(path/to/threaded-streambuf)
+target_link_library(target PRIVATE threaded-streambuf)
+```
+
 ```c++
+#include <tbuf.hpp>
+
 // コンストラクタで渡したtargetに別スレッドでデータを送るstreambuf
 class ThreadedBuf : public std::streambuf{
     explicit ThreadedBuf(std::ostream *target);
@@ -38,6 +47,7 @@ int main()
 }
 ```
 * 上の例で `ThreadedBuf cout_tb(std::cout);`とすると、 std::cout -> cout_tb -> std::cout とデータが送られて無限ループしてしまう
+* ThreadedBufが破棄されるときには確実にflushされます
 
 ### 新しいstreamを作る例
 * 複数のThreadedStreamやThreadedBufに同じ出力先を指定すると、内部でそこに書き込む処理をするスレッドが共有され排他制御される
@@ -79,8 +89,7 @@ cccccc
 
 ## speed test
 
-コンソールへの出力は3〜5倍速くなるが、リダイレクトすると2倍くらい遅くなる。なぜ
-
+todo: ここに書かれているテスト結果は古い
 
 ptimer → https://github.com/na-trium-144/processing-timer
 
